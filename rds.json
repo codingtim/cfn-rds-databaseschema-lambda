@@ -1,0 +1,186 @@
+{
+  "Description": "Template for a RDS.",
+  "Parameters": {
+    "AllocatedStorage": {
+      "Default": "5",
+      "Type": "String"
+    },
+    "AllowedIp": {
+      "Type": "String"
+    },
+    "DBInstanceType": {
+      "Default": "db.t3.micro",
+      "Type": "String"
+    },
+    "DatabaseName": {
+      "Type": "String"
+    },
+    "DatabaseSubnetId": {
+      "Type": "String"
+    },
+    "VpcId": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "RDSPasswordSecret": {
+      "Properties": {
+        "Description": {
+          "Fn::Join": [
+            " ",
+            [
+              "Admin password for the RDS",
+              {
+                "Ref": "DatabaseName"
+              }
+            ]
+          ]
+        },
+        "GenerateSecretString": {
+          "ExcludePunctuation": "true",
+          "GenerateStringKey": "password",
+          "SecretStringTemplate": "{\"username\": \"root\",\"dbname\":\"postgres\"}"
+        },
+        "Name": {
+          "Fn::Join": [
+            "-",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "db-password"
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::SecretsManager::Secret"
+    },
+    "RDSPasswordSecretAttachment": {
+      "Properties": {
+        "SecretId": {
+          "Ref": "RDSPasswordSecret"
+        },
+        "TargetId": {
+          "Ref": "RdsDB"
+        },
+        "TargetType": "AWS::RDS::DBInstance"
+      },
+      "Type": "AWS::SecretsManager::SecretTargetAttachment"
+    },
+    "RdsDB": {
+      "Properties": {
+        "AllocatedStorage": {
+          "Ref": "AllocatedStorage"
+        },
+        "AutoMinorVersionUpgrade": "false",
+        "DBInstanceClass": {
+          "Ref": "DBInstanceType"
+        },
+        "DBInstanceIdentifier": {
+          "Fn::Join": [
+            "-",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "db"
+            ]
+          ]
+        },
+        "DBSubnetGroupName": {
+          "Ref": "DatabaseSubnetId"
+        },
+        "Engine": "postgres",
+        "EngineVersion": "12.5",
+        "MasterUserPassword": {
+          "Fn::Join": [
+            "",
+            [
+              "{{resolve:secretsmanager:",
+              {
+                "Ref": "RDSPasswordSecret"
+              },
+              "::password}}"
+            ]
+          ]
+        },
+        "MasterUsername": {
+          "Fn::Join": [
+            "",
+            [
+              "{{resolve:secretsmanager:",
+              {
+                "Ref": "RDSPasswordSecret"
+              },
+              "::username}}"
+            ]
+          ]
+        },
+        "PubliclyAccessible": "true",
+        "StorageType": "gp2",
+        "VPCSecurityGroups": [
+          {
+            "Ref": "RdsSg"
+          }
+        ]
+      },
+      "Type": "AWS::RDS::DBInstance"
+    },
+    "RdsSg": {
+      "Properties": {
+        "GroupDescription": {
+          "Fn::Join": [
+            " ",
+            [
+              "Security Group for the RDS",
+              {
+                "Ref": "DatabaseName"
+              }
+            ]
+          ]
+        },
+        "VpcId": {
+          "Ref": "VpcId"
+        }
+      },
+      "Type": "AWS::EC2::SecurityGroup"
+    },
+    "Sg5432FromAllowedIp": {
+      "Properties": {
+        "CidrIp": {
+          "Ref": "AllowedIp"
+        },
+        "FromPort": "5432",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "RdsSg",
+            "GroupId"
+          ]
+        },
+        "IpProtocol": "tcp",
+        "ToPort": "5432"
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress"
+    },
+    "Sg5432FromSelf": {
+      "Properties": {
+        "FromPort": "5432",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "RdsSg",
+            "GroupId"
+          ]
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "RdsSg",
+            "GroupId"
+          ]
+        },
+        "ToPort": "5432"
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress"
+    }
+  }
+}

@@ -3,8 +3,12 @@ package be.codingtim.aws.cfn.rds.databasechema.lambda;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.amazonaws.services.secretsmanager.AWSSecretsManager;
+import com.amazonaws.services.secretsmanager.AWSSecretsManagerClientBuilder;
+import com.amazonaws.services.secretsmanager.model.GetSecretValueRequest;
+import com.amazonaws.services.secretsmanager.model.GetSecretValueResult;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
@@ -19,8 +23,15 @@ import java.util.UUID;
 /**
  * https://docs.aws.amazon.com/lambda/latest/dg/java-handler.html
  */
+@SuppressWarnings("unchecked")
 public class Handler implements RequestHandler<Map<String, Object>, Void> {
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+
+    private final ObjectMapper objectMapper;
+
+    public Handler() {
+        this.objectMapper = new ObjectMapper();
+        objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
 
     @Override
     public Void handleRequest(Map<String, Object> event, Context context) {
@@ -39,12 +50,39 @@ public class Handler implements RequestHandler<Map<String, Object>, Void> {
 //                 }
 //        }
         LambdaLogger logger = context.getLogger();
-        // log execution details
-        logger.log("ENVIRONMENT VARIABLES: " + gson.toJson(System.getenv()));
-        logger.log("CONTEXT: " + gson.toJson(context));
-        // process event
-        logger.log("EVENT: " + gson.toJson(event));
-        logger.log("EVENT TYPE: " + event.getClass().toString());
+
+        CloudFormationResponseSender cloudFormationResponseSender = new CloudFormationResponseSender(event, logger);
+
+        Map<String, Object> properties = (Map<String, Object>) event.get("ResourceProperties");
+        String secretArn = (String) properties.get("SecretArn");
+
+        try {
+            logger.log("Get secret: " + secretArn);
+            final Map<String, String> secretAsMap = getSecretAsMap(secretArn);
+            logger.log("Got secret: " + secretAsMap);
+            cloudFormationResponseSender.success();
+        } catch (IOException e) {
+            cloudFormationResponseSender.failed();
+        }
+        return null;
+    }
+
+    private Map<String, String> getSecretAsMap(String secretArn) throws IOException {
+        AWSSecretsManager client = AWSSecretsManagerClientBuilder.standard().build();
+
+        GetSecretValueRequest getSecretValueRequest = new GetSecretValueRequest()
+                .withSecretId(secretArn).withVersionStage("AWSCURRENT");
+
+        GetSecretValueResult getSecretValueResult = client.getSecretValue(getSecretValueRequest);
+        String secretString = getSecretValueResult.getSecretString();
+        return objectMapper.readValue(secretString, Map.class);
+    }
+
+    private class CloudFormationResponseSender {
+        private final LambdaLogger logger;
+        private final Map<String, Object> response;
+        private final String responseURL;
+
         //Example response:
 //        {
 //            "Status" : "SUCCESS",
@@ -57,25 +95,37 @@ public class Handler implements RequestHandler<Map<String, Object>, Void> {
 //                    "OutputName2" : "Value2",
 //                }
 //        }
-        Map<String, Object> response = new HashMap<>();
-        response.put("Status", "SUCCESS");
-        response.put("PhysicalResourceId", UUID.randomUUID().toString());
-        response.put("StackId", event.get("StackId"));
-        response.put("RequestId", event.get("RequestId"));
-        response.put("LogicalResourceId", event.get("LogicalResourceId"));
+        public CloudFormationResponseSender(Map<String, Object> event, LambdaLogger logger) {
+            this.logger = logger;
+            response = new HashMap<>();
+            response.put("PhysicalResourceId", UUID.randomUUID().toString());
+            response.put("StackId", event.get("StackId"));
+            response.put("RequestId", event.get("RequestId"));
+            response.put("LogicalResourceId", event.get("LogicalResourceId"));
 
-        String responseURL = (String) event.get("ResponseURL");
-        try {
-            HttpClient httpClient = HttpClient.newBuilder().build();
-            HttpRequest httpRequest = HttpRequest.newBuilder(new URI(responseURL))
-                    .PUT(HttpRequest.BodyPublishers.ofString(gson.toJson(response)))
-                    .build();
-            HttpResponse<String> httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            logger.log("Response code: " + httpResponse.statusCode());
-        } catch (URISyntaxException | IOException | InterruptedException e) {
-            logger.log("Error sending response: " + e.getMessage());
+            responseURL = (String) event.get("ResponseURL");
         }
-        return null;
-    }
 
+        public void success() {
+            sendResponse("SUCCESS");
+        }
+
+        public void failed() {
+            sendResponse("FAILED");
+        }
+
+        private void sendResponse(String status) {
+            try {
+                response.put("Status", status);
+                HttpClient httpClient = HttpClient.newBuilder().build();
+                HttpRequest httpRequest = HttpRequest.newBuilder(new URI(responseURL))
+                        .PUT(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(response)))
+                        .build();
+                HttpResponse<String> httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+                logger.log("Send status to cfn, response code: " + httpResponse.statusCode());
+            } catch (URISyntaxException | IOException | InterruptedException e) {
+                logger.log("Error sending response: " + e.getMessage());
+            }
+        }
+    }
 }

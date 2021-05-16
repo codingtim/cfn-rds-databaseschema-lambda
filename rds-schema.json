@@ -3,6 +3,9 @@
   "Parameters": {
     "CustomResourceLambdaArn": {
       "Type": "String"
+    },
+    "SecretArn": {
+      "Type": "String"
     }
   },
   "Resources": {
@@ -10,6 +13,9 @@
       "Properties": {
         "ServiceToken": {
           "Ref": "CustomResourceLambdaArn"
+        },
+        "SecretArn": {
+          "Ref": "SecretArn"
         }
       },
       "Type": "Custom::S3Object"
