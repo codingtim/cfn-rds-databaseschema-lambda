@@ -1,0 +1,100 @@
+{
+  "Description": "Custom Resource",
+  "Parameters": {
+    "BucketName": {
+      "Type": "String"
+    },
+    "PrivateSubnet": {
+      "Type": "String"
+    },
+    "VpcID": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "LambdaFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Ref": "BucketName"
+          },
+          "S3Key": "codingtim-rds-databaseschema-handler-lambda-1.0-SNAPSHOT.jar"
+        },
+        "Description": "Lambda for custom resource db schema",
+        "Handler": "be.codingtim.aws.cfn.rds.databasechema.lambda.Handler::handleRequest",
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "java11",
+        "MemorySize": 512,
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Ref": "LambdaSg"
+            }
+          ],
+          "SubnetIds": [
+            {
+              "Ref": "PrivateSubnet"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "LambdaRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              },
+              "Sid": ""
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        ],
+        "RoleName": "custom-resource-role"
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "LambdaSg": {
+      "Properties": {
+        "GroupDescription": "Lambda SG",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "lambda-SG"
+                ]
+              ]
+            }
+          }
+        ],
+        "VpcId": {
+          "Ref": "VpcID"
+        }
+      },
+      "Type": "AWS::EC2::SecurityGroup"
+    }
+  }
+}

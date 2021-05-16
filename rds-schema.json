@@ -1,0 +1,18 @@
+{
+  "Description": "Test stack for the rds database schema lambda custom resource.",
+  "Parameters": {
+    "CustomResourceLambdaArn": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "DatabaseSchema": {
+      "Properties": {
+        "ServiceToken": {
+          "Ref": "CustomResourceLambdaArn"
+        }
+      },
+      "Type": "Custom::S3Object"
+    }
+  }
+}
